@@ -90,7 +90,48 @@ for course, sections_ in courses.items():
 # displays information about the courses
 print(f"{len(sections)} sections, {len(courses.keys())} courses, and {len(time_frames.keys())} time frames found!")
 
+# discards any uscheduled sections, then any empty courses or time frames
+print()
+print("Verifying schedule data...")
+# for each time frame (iterating over key list copy)
+for time_frame in list(time_frames.keys()):
+    # get the list of courses in the time frame
+    courses_ = time_frames[time_frame]
+
+    # iterate over a copy of the course list
+    for course in list(courses_):
+        # get the list of sections in the course
+        sections_ = courses[course]
+
+        # iterate over a copy of the sections list
+        for section in list(sections_):
+
+            # check whether the section has a schedule
+            if section['Meeting Patterns'] is None:
+                # display a message
+                code = " ".join(section['Section'].split()[:2])
+                print(f"Discarded section {code} because not scheduled.")
+                sections_.remove(section)  # remove it from the course
+                sections.remove(section)  # remove it from the main list
+
+        # check whether the course has any section left
+        if len(sections_) == 0:
+            # display a message
+            code = " ".join(course.split()[:2])
+            print(f"Discarded course {code} due to no scheduled sections.")
+            courses_.remove(course)  # remove it from the time frame
+            del courses[course]  # remove it from the main dict
+
+    # check whether the time frame has any courses left
+    if len(courses_) == 0:
+        # display a message
+        time = f"{datetime.strftime(time_frame[0], r"%Y-%m-%d")} to {datetime.strftime(time_frame[1], r"%Y-%m-%d")}"
+        print(f"Discarded time frame from {time} due to no remaining courses.")
+        del time_frames[time_frame]  # remove from the dict
+
 # displays a time frame -> course -> section tree view with schedule info
+print()
+print(f"{len(sections)} sections, {len(courses.keys())} courses, and {len(time_frames.keys())} time frames found!")
 
 # for each time frame
 for time_frame, courses_ in time_frames.items():
