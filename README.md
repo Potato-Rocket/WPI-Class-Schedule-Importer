@@ -38,7 +38,10 @@ This tool helps you automatically add your class schedule to your calendar by:
    ```
 
 3. Follow the prompts:
-   - Select your exported Excel file when the file dialog appears
+   - Select your first Excel file when the file dialog appears
+   - **Optional**: Load additional files (e.g., Fall and Spring semesters together)
+     - The script will prompt: "Load another file? (y/n)"
+     - All files must have the same column structure
    - The script will analyze your schedule and group courses by time frame
    - Interactively select which time frame, courses, and sections you want to export
    - Choose where to save your calendar file (.ics)
@@ -108,6 +111,21 @@ Each class section includes:
 **Excel file won't load:**
 - Make sure you exported directly from Workday using the "Export to Excel" button
 - Verify the file is in `.xlsx` format
+
+**"Error: First header cell is empty!" or "Error: Missing required headers!":**
+- Your Excel file may not match the expected Workday format
+- The script expects headers at row 3, column 2 (after title row and label column)
+- If your file has a different structure, adjust `ROW_SKIP` and `COL_SKIP` constants at the top of `class_schedule.py`
+- Required columns: Course Listing, Section, Meeting Patterns, Start Date, End Date
+
+**"Error: Headers don't match previous file!":**
+- When loading multiple files, all must have the same column structure
+- This file will be skipped - you can continue with already loaded files
+- Ensure all files are Workday exports from the same system
+
+**"Warning: Reached MAX limit":**
+- Your spreadsheet has more than 100 rows
+- Increase the `MAX` constant at the top of `class_schedule.py` (e.g., change to `MAX = 200`)
 
 **Events not showing in calendar:**
 - Check that you imported the file (not just opened it)

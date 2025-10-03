@@ -7,9 +7,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from icalendar import Calendar, Event, vDatetime, vRecur
 
-MAX = 100  # a reasonable limit on searching for data cells
-COL_SKIP = 1  # number of columns to skip before data starts
-ROW_SKIP = 2  # number of rows to skip before data starts
+# Configuration constants for Workday Excel export format
+MAX = 100  # Maximum rows/columns to search. Increase if spreadsheet is truncated.
+COL_SKIP = 1  # Workday exports: skip 1 label column before headers start
+ROW_SKIP = 2  # Workday exports: skip 2 rows (title + blank) before headers start
 
 WEEKDAYS = {
     'M': "MO",
@@ -19,11 +20,29 @@ WEEKDAYS = {
     'F': "FR"
 }
 
+# Required column headers - script will fail without these
+REQUIRED_HEADERS = [
+    'Course Listing',
+    'Section',
+    'Meeting Patterns',
+    'Start Date',
+    'End Date'
+]
+
+# Optional headers - used for descriptions but not critical
+OPTIONAL_HEADERS = [
+    'Instructor',
+    'Delivery Mode',
+    'Instructional Format'
+]
+
 
 def get_filename():
     """
     Open a system dialog to allow the user to select a .xlsx file.
-    Returns the filename as a string.
+
+    Returns:
+        str: Path to selected file, or empty string if cancelled
     """
     print("\nPlease select an excel file to read.")
 
@@ -39,10 +58,23 @@ def get_filename():
     return fname
 
 
-def parse_spreadsheet(fname):
+def parse_spreadsheet(fname, expected_headers=None):
     """
-    Parses the given .xlsx file and extracts section information.
-    Returns a list of sections, where each section is a dictionary of its attributes with the spreadsheet header as the key.    
+    Parse .xlsx file and extract section information with validation.
+
+    Each section is assigned a unique UUID and parsed according to Workday
+    export format. If expected_headers is provided, validates that this file's
+    headers match (for multi-file consistency).
+
+    Args:
+        fname (str): Path to the .xlsx file
+        expected_headers (list, optional): Expected column headers from previous file
+
+    Returns:
+        tuple: (sections, headers) where:
+            - sections (list): List of section dictionaries, each with UUID
+            - headers (list): Column headers found in this file
+            - Returns (None, None) if headers don't match expected_headers
     """
     warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
     # try to open the file
@@ -58,6 +90,17 @@ def parse_spreadsheet(fname):
     start_row = ROW_SKIP + 1
     start_col = COL_SKIP + 1
 
+    # Validate that skip values are correct
+    first_header = ws.cell(start_row, start_col).value
+    if first_header is None:
+        print("\nError: First header cell is empty!")
+        print(f"Expected headers at row {start_row}, column {start_col}")
+        print(f"Current settings: ROW_SKIP={ROW_SKIP}, COL_SKIP={COL_SKIP}")
+        print("\nPlease check:")
+        print("  1. Your Excel file matches the expected Workday export format")
+        print("  2. Adjust ROW_SKIP/COL_SKIP constants if needed (see README.md)")
+        sys.exit(1)
+
     print("Finding headers...")
     # parses the spreadsheet to find column names
     headers = []
@@ -67,21 +110,43 @@ def parse_spreadsheet(fname):
         # only adds the cell if the column exists
         if cell is not None:
             headers.append(cell)
-    
+
+    # Validate that all required headers are present
+    missing_headers = [h for h in REQUIRED_HEADERS if h not in headers]
+    if missing_headers:
+        print("\nError: Missing required headers in spreadsheet!")
+        print(f"Missing: {', '.join(missing_headers)}")
+        print(f"\nFound headers: {', '.join(headers)}")
+        print("\nPlease check:")
+        print("  1. Your Excel file is a Workday export (Academics → View My Courses → Export to Excel)")
+        print("  2. The ROW_SKIP/COL_SKIP constants are correctly configured")
+        sys.exit(1)
+
+    # If expected_headers provided, validate they match
+    if expected_headers is not None:
+        if set(headers) != set(expected_headers):
+            print("\nError: Headers don't match previous file!")
+            print(f"Expected: {', '.join(expected_headers)}")
+            print(f"Found:    {', '.join(headers)}")
+            print("\nAll files must have the same column structure.")
+            print("This file will be skipped.")
+            return None, None
+
     start_row += 1  # moves down to the next row for section data
 
     print("Finding sections...")
     # parses section info from each row
     sections = []
+    rows_read = 0
     for row in range(MAX):
 
         if ws.cell(row + start_row, start_col).value is None:
             break
-        
-        section = {'Index': row}
+
+        section = {'UUID': uuid.uuid4().hex.upper()}
         for col in range(len(headers)):
             section[headers[col]] = ws.cell(row + start_row, col + start_col).value
-        
+
         if section['Meeting Patterns'] is not None:
             fields = section['Meeting Patterns'].split(" | ")
 
@@ -91,16 +156,34 @@ def parse_spreadsheet(fname):
 
             section['Location'] = fields[2]
             section['Meeting Patterns'] = fields[0].split("-")
-        
-        sections.append(section)
 
-    return sections
+        sections.append(section)
+        rows_read = row + 1
+
+    print(f"Read {rows_read} rows from spreadsheet")
+
+    # Warn if we hit the MAX limit
+    if rows_read >= MAX:
+        print(f"Warning: Reached MAX limit of {MAX} rows - spreadsheet may be truncated!")
+        print(f"To process more rows, increase MAX constant (currently {MAX})")
+
+    return sections, headers
 
 
 def group_data(sections):
     """
-    Groups sections into courses, and courses into time frames.
-    Returns two dictionaries: courses and time_frames.
+    Group sections into courses, and courses into time frames.
+
+    Sections with the same Course Listing are grouped together. Courses
+    with the same start/end dates are grouped into time frames.
+
+    Args:
+        sections (list): List of section dictionaries
+
+    Returns:
+        tuple: (courses, time_frames) where:
+            - courses (dict): Maps course name to list of sections
+            - time_frames (dict): Maps (start_date, end_date) tuple to list of courses
     """
     print("Grouping sections into courses...")
     # groups sections into courses
@@ -128,7 +211,15 @@ def group_data(sections):
 
 def verify_scheduling(sections, courses, time_frames):
     """
-    Verifies that each section has a schedule, removing unscheduled sections, courses with no scheduled sections, and time frames with no courses. Modifies the input lists and dictionaries in place.
+    Verify sections have schedules and remove unscheduled items.
+
+    Removes sections without Meeting Patterns, courses with no scheduled
+    sections, and time frames with no courses. Modifies inputs in place.
+
+    Args:
+        sections (list): List of section dictionaries (modified in place)
+        courses (dict): Course name to sections mapping (modified in place)
+        time_frames (dict): Time frame to courses mapping (modified in place)
     """
     print("\nVerifying schedule data...")
     # for each time frame (iterating over key list copy)
@@ -169,13 +260,26 @@ def verify_scheduling(sections, courses, time_frames):
 
 
 def print_data_summary(sections, courses, time_frames):
-    """Prints a summary of the length of data found."""
+    """
+    Print summary statistics of loaded data.
+
+    Args:
+        sections (list): List of section dictionaries
+        courses (dict): Course name to sections mapping
+        time_frames (dict): Time frame to courses mapping
+    """
     # displays information about the courses
     print(f"\n{len(sections)} sections, {len(courses.keys())} courses, and {len(time_frames.keys())} time frames found!")
 
 
-def print_tree_view(courses, time_frame):
-    """Prints a tree view of the time frames, courses, and sections."""
+def print_tree_view(courses, time_frames):
+    """
+    Print hierarchical tree view of time frames, courses, and sections.
+
+    Args:
+        courses (dict): Course name to sections mapping
+        time_frames (dict): Time frame to courses mapping
+    """
 
     print()
     print("=" * 60)
@@ -199,9 +303,9 @@ def print_tree_view(courses, time_frame):
             course_sections = courses[course]
 
             # for each section in the course
-            for section in course_sections:
+            for i, section in enumerate(course_sections):
                 # print section name and gutter tree
-                char = '└' if section['Index'] == course_sections[-1]['Index'] else '├'
+                char = '└' if i == len(course_sections) - 1 else '├'
                 tree = ' ' if last else '│'
                 code = " ".join(section['Section'].split()[:2])
                 print(f"{tree}   {char}── {code:<14}", end="")
@@ -227,8 +331,17 @@ def print_tree_view(courses, time_frame):
 
 def select_sections(time_frames, courses):
     """
-    Interactively select which sections to include in calendar export.
-    Returns a list of approved sections.
+    Interactively prompt user to select sections for calendar export.
+
+    Allows drill-down selection: time frame → course → individual section.
+    User can approve entire time frames, individual courses, or specific sections.
+
+    Args:
+        time_frames (dict): Time frame to courses mapping
+        courses (dict): Course name to sections mapping
+
+    Returns:
+        list: Approved section dictionaries selected by user
     """
     approved_sections = []
 
@@ -308,7 +421,16 @@ def select_sections(time_frames, courses):
 
 def generate_calendar(sections):
     """
-    Generates an iCalendar file from the given sections.
+    Generate iCalendar object from approved sections.
+
+    Each section becomes a calendar event with its UUID as the event UID.
+    Uses defensive .get() for optional fields (Instructor, Delivery Mode, etc.).
+
+    Args:
+        sections (list): List of approved section dictionaries
+
+    Returns:
+        Calendar: iCalendar object ready for export
     """
     print("\nGenerating iCalendar data...")
     cal = Calendar()
@@ -317,9 +439,9 @@ def generate_calendar(sections):
 
     for section in sections:
         event = Event()
-        event.add('uid', uuid.uuid4().hex.upper())
-        event.add('summary', section['Section'])
-        event.add('location', section['Location'])
+        event.add('uid', section['UUID'])
+        event.add('summary', section.get('Section', 'Unknown Section'))
+        event.add('location', section.get('Location', 'TBD'))
 
         tz = timezone(timedelta(hours=-4))
         dtstart = datetime.combine(section['Start Date'].date(), section['Start Time'].time(), tzinfo=tz)
@@ -327,7 +449,11 @@ def generate_calendar(sections):
         event.add('dtstart', dtstart)
         event.add('dtend', dtend)
 
-        description = f"{section['Delivery Mode']} {section['Instructional Format']} with Professor {section['Instructor']}.\n\nGenerated by Class Schedule Importer."
+        # Build description with optional fields that read naturally when missing
+        delivery_mode = section.get('Delivery Mode', 'Unknown mode')
+        instructional_format = section.get('Instructional Format', 'unknown format').lower()
+        instructor = section.get('Instructor', 'unknown professor')
+        description = f"{delivery_mode}, {instructional_format} with {instructor}.\n\nGenerated by Class Schedule Importer."
         event.add('description', description)
 
         cal.add_component(event)
@@ -337,7 +463,10 @@ def generate_calendar(sections):
 
 def save_calendar(cal):
     """
-    Saves the given iCalendar object to a .ics file.
+    Save iCalendar object to .ics file via file dialog.
+
+    Args:
+        cal (Calendar): iCalendar object to save
     """
     print("Please select a location to save the iCalendar file.")
     # start up tkinter for the file dialog
@@ -366,15 +495,39 @@ def save_calendar(cal):
 
 # main script execution
 print("Welcome to Class Schedule Importer!")
-fname = get_filename()
-sections = parse_spreadsheet(fname)
-courses, time_frames = group_data(sections)
-print_data_summary(sections, courses, time_frames)
-verify_scheduling(sections, courses, time_frames)
-print_data_summary(sections, courses, time_frames)
+print("For usage instructions, see README.md")
+
+# Load files in a loop
+all_sections = []
+headers = None
+
+while True:
+    fname = get_filename()
+    if not fname:  # User cancelled
+        break
+
+    result = parse_spreadsheet(fname, headers)
+    if result == (None, None):  # Header mismatch
+        continue
+
+    sections, headers = result
+    all_sections.extend(sections)
+    print(f"Total sections loaded: {len(all_sections)}")
+
+    if input("\nLoad another file? (y/n): ").lower().strip() != 'y':
+        break
+
+if not all_sections:
+    print("No sections loaded. Exiting.")
+    sys.exit()
+
+courses, time_frames = group_data(all_sections)
+print_data_summary(all_sections, courses, time_frames)
+verify_scheduling(all_sections, courses, time_frames)
+print_data_summary(all_sections, courses, time_frames)
 print_tree_view(courses, time_frames)
 approved_sections = select_sections(time_frames, courses)
-print(f"\n{len(approved_sections)} sections out of {len(sections)} approved for export.")
+print(f"\n{len(approved_sections)} sections out of {len(all_sections)} approved for export.")
 calendar = generate_calendar(approved_sections)
 save_calendar(calendar)
 print("\nThank you for using Class Schedule Importer!")

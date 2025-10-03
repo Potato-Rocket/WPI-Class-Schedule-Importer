@@ -137,38 +137,44 @@ These assumptions will cause immediate failures if violated:
 - **Impact if wrong**: KeyError crash during selection UI or calendar generation
 - **Fix difficulty**: Easy - add .get() with defaults
 
-### 3. **Index Field for Sorting**
-- **Assumption**: All sections have an `Index` field for identifying last item
-- **Location**: Lines 81, 204
-- **Risk**: LOW - Always set during parsing
-- **Impact if wrong**: Comparison fails, tree view breaks
-- **Fix difficulty**: Easy - use enumerate() instead
+### 3. **~~Index Field for Sorting~~**: ✓ FIXED
+- **Old assumption**: All sections have an `Index` field for identifying last item
+- **Resolution**: Replaced with UUID (unique identifier) for each section
+- **Location**: Now uses `enumerate()` in tree view (line 250)
+- **Benefit**: UUIDs enable multi-file support and serve as calendar event UIDs
 
 ---
 
 ## 💡 REINFORCEMENT RECOMMENDATIONS
 
-### Quick Wins (Easy to Fix)
+### ✅ Completed Quick Wins
 
-1. **Make offsets configurable**:
-   ```python
-   # At top of file, with documentation
-   COL_SKIP = 1  # Workday exports: skip 1 label column
-   ROW_SKIP = 2  # Workday exports: skip 2 header rows (title + blank)
-   ```
+1. **~~Make offsets configurable~~**: ✓ DONE
+   - Added documentation comments to MAX, COL_SKIP, ROW_SKIP constants
+   - Constants now clearly explain purpose and how to adjust
 
-2. **~~Use worksheet dimensions instead of MAX~~**:
-   - **NOTE**: `ws.max_row` and `ws.max_column` both return 1 with `read_only=True, data_only=True`
-   - Manual iteration with MAX limit is currently necessary
-   - Could add warning if hitting MAX limit
+2. **~~Add MAX limit warning~~**: ✓ DONE
+   - Script now displays rows read after parsing
+   - Warns user if MAX limit is reached with instructions to increase it
+   - **NOTE**: `ws.max_row` and `ws.max_column` both return 1 with `read_only=True, data_only=True`, so manual iteration with MAX is necessary
 
-3. **Add defensive dictionary access**:
-   ```python
-   # Instead of: section['Location']
-   section.get('Location', 'TBD')
-   ```
+3. **~~Add defensive dictionary access~~**: ✓ DONE
+   - `generate_calendar()` now uses `.get()` with sensible defaults
+   - Missing optional fields (Instructor, Delivery Mode, etc.) handled gracefully
+   - Description reads naturally with any combination of missing fields
 
-4. **Validate Meeting Patterns format**:
+4. **~~Validate spreadsheet structure~~**: ✓ DONE
+   - Checks if first header cell is empty (catches wrong ROW_SKIP/COL_SKIP)
+   - Validates all REQUIRED_HEADERS exist after parsing
+   - Helpful error messages guide user to fix configuration
+   - Added REQUIRED_HEADERS and OPTIONAL_HEADERS constants
+
+5. **~~Update welcome message~~**: ✓ DONE
+   - Points users to README.md for usage instructions
+
+### Remaining Quick Wins
+
+6. **Validate Meeting Patterns format**:
    ```python
    if section['Meeting Patterns'] and " | " in section['Meeting Patterns']:
        fields = section['Meeting Patterns'].split(" | ")
@@ -216,12 +222,21 @@ These assumptions will cause immediate failures if violated:
 - ✅ Interactive selection UI with drill-down
 - ✅ Validation and discarding of unscheduled items
 - ✅ Error handling for file selection cancellation
+- ✅ **NEW**: Multi-file loading support (combine Fall + Spring semesters)
+- ✅ **NEW**: UUID-based section identification (enables multi-file support)
+- ✅ **NEW**: Header validation across files (ensures consistency)
+- ✅ **NEW**: Spreadsheet structure validation (empty cells, missing headers)
+- ✅ **NEW**: Configuration constants with clear documentation
+- ✅ **NEW**: MAX limit warning and row count display
+- ✅ **NEW**: Defensive dictionary access with graceful fallbacks
+- ✅ **NEW**: User-friendly error messages with actionable guidance
+- ✅ **NEW**: Standardized docstrings with Args/Returns documentation
 
-### What's Fragile
-- ⚠️ Hardcoded offsets and limits
-- ⚠️ String parsing without validation
-- ⚠️ Timezone handling
-- ⚠️ Assumption that Workday format never changes
+### What's Fragile (But Now Better!)
+- ⚠️ **IMPROVED**: ~~Hardcoded offsets and limits~~ → Now documented with validation
+- ⚠️ String parsing without validation (Meeting Patterns still needs validation)
+- ⚠️ Timezone handling (still hardcoded UTC-4)
+- ⚠️ Assumption that Workday format never changes (but now validates structure)
 
 ### What's Broken (Known Issues)
 - ❌ iCalendar export format (Excel can't open)
