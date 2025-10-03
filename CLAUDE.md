@@ -79,11 +79,28 @@ Calendar export has multiple issues (see commit 77dfe85):
 
 ## Dependencies
 
-- `openpyxl`: Excel file reading
-- `icalendar`: iCalendar generation
-- `tkinter`: GUI file dialogs (built-in to Python)
+### Required Packages
+- **`openpyxl`**: Excel (.xlsx) file reading
+- **`icalendar`**: iCalendar generation
+- **`tkinter`**: GUI file dialogs
+- **`uuid`**, **`datetime`**: Built-in Python modules
 
-Install with:
+### Installation
+
+**Option 1: Using pip (virtual environment recommended):**
 ```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install openpyxl icalendar
 ```
+
+**Option 2: Using system package manager (Linux):**
+```bash
+# Debian/Ubuntu
+sudo apt install python3-openpyxl python3-icalendar python3-tk
+
+# Fedora/RHEL
+sudo dnf install python3-openpyxl python3-icalendar python3-tkinter
+```
+
+Note: System packages may be older versions but are tested for your distribution.

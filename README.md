@@ -76,31 +76,11 @@ This tool helps you automatically add your class schedule to your calendar by:
 4. Tap **Add to Calendar** or **Import**
 5. Select the calendar to add events to
 
-## How It Works
-
-The script processes your Excel file through the following pipeline:
-
-1. **Parse Spreadsheet**: Extracts section data starting from row 3, column 2
-2. **Group Data**: Organizes sections into courses and time frames (semester start/end dates)
-3. **Validate Scheduling**: Removes any unscheduled classes or sections
-4. **Interactive Selection**: Lets you choose which sections to export
-5. **Generate Calendar**: Converts selected sections to iCalendar events
-6. **Save Calendar**: Exports as a `.ics` file
-
-## Data Structure
-
-Each class section includes:
-- Course information (name, listing, section number)
-- Instructor details
-- Meeting times and days
-- Location
-- Start and end dates
-
 ## Known Limitations
 
-- Timezone is currently hardcoded to UTC-4
-- Recurrence logic for repeating events is under development
-- Currently creates individual event instances rather than recurring series
+- Events are created as individual instances (not recurring series)
+- Some calendar applications may have formatting issues
+- Timezone is set to Eastern Time (UTC-4)
 
 ## Troubleshooting
 
@@ -132,12 +112,12 @@ Each class section includes:
 - Verify the date range matches your current semester
 - Ensure your calendar app supports `.ics` files
 
-## Dependencies
+## Technical Details
 
-- `openpyxl`: Excel file reading
-- `icalendar`: iCalendar file generation
-- `tkinter`: GUI file dialogs (included with Python)
+For developers and contributors, see:
+- **CLAUDE.md** - Architecture and development guide
+- **ASSUMPTIONS.md** - Technical assumptions and risk analysis
 
 ## License
 
-This is a personal utility script. Use and modify as needed.
+MIT License - See LICENSE file for details.
