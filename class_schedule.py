@@ -4,9 +4,10 @@ import openpyxl
 import warnings
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
-from icalendar import Calendar, Event, vDatetime, vRecur
+from icalendar import Calendar, Event, Timezone, TimezoneStandard, TimezoneDaylight
+from dateutil.rrule import rrule, WEEKLY, MO, TU, WE, TH, FR
 
 # Configuration constants for Workday Excel export format
 MAX = 100  # Maximum rows/columns to search. Increase if spreadsheet is truncated.
@@ -19,6 +20,14 @@ WEEKDAYS = {
     'W': "WE",
     'R': "TH",
     'F': "FR"
+}
+
+DATEUTIL_WEEKDAYS = {
+    'M': MO,
+    'T': TU,
+    'W': WE,
+    'R': TH,
+    'F': FR
 }
 
 # Required column headers - script will fail without these
@@ -420,12 +429,57 @@ def select_sections(time_frames, courses):
     return approved_sections
 
 
+def create_calendar():
+    """
+    Create a Calendar object with metadata and VTIMEZONE for America/New_York.
+
+    Returns:
+        Calendar: iCalendar object with prodid, version, and VTIMEZONE set
+    """
+    cal = Calendar()
+    cal.add('prodid', '-//Class Schedule Importer//mxm.dk//')
+    cal.add('version', '2.0')
+
+    # VTIMEZONE required by RFC 5545 whenever TZID is referenced in an event.
+    # Defines the EST/EDT transition rules for America/New_York so calendar
+    # clients can resolve the named timezone without external lookup.
+    tz_comp = Timezone()
+    tz_comp.add('tzid', 'America/New_York')
+
+    # Standard time (EST, UTC-5): clocks fall back on the first Sunday of November
+    std = TimezoneStandard()
+    std.add('dtstart', datetime(1970, 11, 1, 2, 0, 0))
+    std.add('rrule', {'FREQ': 'YEARLY', 'BYDAY': '1SU', 'BYMONTH': 11})
+    std.add('tzoffsetfrom', timedelta(hours=-4))  # coming from EDT
+    std.add('tzoffsetto', timedelta(hours=-5))    # going to EST
+    std.add('tzname', 'EST')
+
+    # Daylight time (EDT, UTC-4): clocks spring forward on the second Sunday of March
+    dst = TimezoneDaylight()
+    dst.add('dtstart', datetime(1970, 3, 8, 2, 0, 0))
+    dst.add('rrule', {'FREQ': 'YEARLY', 'BYDAY': '2SU', 'BYMONTH': 3})
+    dst.add('tzoffsetfrom', timedelta(hours=-5))  # coming from EST
+    dst.add('tzoffsetto', timedelta(hours=-4))    # going to EDT
+    dst.add('tzname', 'EDT')
+
+    tz_comp.add_component(std)
+    tz_comp.add_component(dst)
+    cal.add_component(tz_comp)
+
+    return cal
+
+
 def generate_calendar(sections):
     """
     Generate iCalendar object from approved sections.
 
-    Each section becomes a calendar event with its UUID as the event UID.
-    Uses defensive .get() for optional fields (Instructor, Delivery Mode, etc.).
+    Each section becomes a recurring weekly VEVENT. The first occurrence date
+    is computed from the semester start date and the section's meeting days,
+    since the semester may start mid-week. The RRULE repeats on the same
+    days each week until the semester end date.
+
+    DTSTART/DTEND use America/New_York (local time with TZID). DTSTAMP and
+    RRULE UNTIL are in UTC as required by RFC 5545.
 
     Args:
         sections (list): List of approved section dictionaries
@@ -434,9 +488,7 @@ def generate_calendar(sections):
         Calendar: iCalendar object ready for export
     """
     print("\nGenerating iCalendar data...")
-    cal = Calendar()
-    cal.add('prodid', '-//Class Schedule Importer//mxm.dk//')
-    cal.add('version', '2.0')
+    cal = create_calendar()
 
     for section in sections:
         event = Event()
@@ -445,11 +497,25 @@ def generate_calendar(sections):
         event.add('location', section.get('Location', 'TBD'))
 
         tz = ZoneInfo('America/New_York')
-        dtstart = datetime.combine(section['Start Date'].date(), section['Start Time'].time(), tzinfo=tz).astimezone(timezone.utc)
-        dtend = datetime.combine(section['Start Date'].date(), section['End Time'].time(), tzinfo=tz).astimezone(timezone.utc)
+        start_date = section['Start Date'].date()
+        end_date = section['End Date'].date()
+
+        # Find the correct first occurrence: the first matching weekday on or after start_date
+        byweekday = [DATEUTIL_WEEKDAYS[d] for d in section['Meeting Patterns']]
+        occurrences = rrule(WEEKLY, byweekday=byweekday,
+                            dtstart=datetime.combine(start_date, datetime.min.time()),
+                            until=datetime.combine(end_date, datetime.max.time()))
+        first_date = occurrences[0].date()
+
+        dtstart = datetime.combine(first_date, section['Start Time'].time(), tzinfo=tz)
+        dtend = datetime.combine(first_date, section['End Time'].time(), tzinfo=tz)
+        until = datetime.combine(end_date, section['End Time'].time(), tzinfo=tz).astimezone(timezone.utc)
+
         event.add('dtstart', dtstart)
         event.add('dtend', dtend)
         event.add('dtstamp', datetime.now(timezone.utc))
+        # RRULE repeats weekly on the section's meeting days; UNTIL bounds the recurrence
+        event.add('rrule', {'FREQ': 'WEEKLY', 'BYDAY': [WEEKDAYS[d] for d in section['Meeting Patterns']], 'UNTIL': until})
 
         # Build description with optional fields that read naturally when missing
         delivery_mode = section.get('Delivery Mode', 'Unknown mode')
