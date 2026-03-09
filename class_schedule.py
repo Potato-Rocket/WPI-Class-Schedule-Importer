@@ -4,7 +4,8 @@ import openpyxl
 import warnings
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from icalendar import Calendar, Event, vDatetime, vRecur
 
 # Configuration constants for Workday Excel export format
@@ -443,11 +444,12 @@ def generate_calendar(sections):
         event.add('summary', section.get('Section', 'Unknown Section'))
         event.add('location', section.get('Location', 'TBD'))
 
-        tz = timezone(timedelta(hours=-4))
-        dtstart = datetime.combine(section['Start Date'].date(), section['Start Time'].time(), tzinfo=tz)
-        dtend = datetime.combine(section['Start Date'].date(), section['End Time'].time(), tzinfo=tz)
+        tz = ZoneInfo('America/New_York')
+        dtstart = datetime.combine(section['Start Date'].date(), section['Start Time'].time(), tzinfo=tz).astimezone(timezone.utc)
+        dtend = datetime.combine(section['Start Date'].date(), section['End Time'].time(), tzinfo=tz).astimezone(timezone.utc)
         event.add('dtstart', dtstart)
         event.add('dtend', dtend)
+        event.add('dtstamp', datetime.now(timezone.utc))
 
         # Build description with optional fields that read naturally when missing
         delivery_mode = section.get('Delivery Mode', 'Unknown mode')
@@ -493,41 +495,45 @@ def save_calendar(cal):
     print(f"iCalendar data saved to {fname}")
 
 
-# main script execution
-print("Welcome to Class Schedule Importer!")
-print("For usage instructions, see README.md")
+def main():
+    print("Welcome to Class Schedule Importer!")
+    print("For usage instructions, see README.md")
 
-# Load files in a loop
-all_sections = []
-headers = None
+    # Load files in a loop
+    all_sections = []
+    headers = None
 
-while True:
-    fname = get_filename()
-    if not fname:  # User cancelled
-        break
+    while True:
+        fname = get_filename()
+        if not fname:  # User cancelled
+            break
 
-    result = parse_spreadsheet(fname, headers)
-    if result == (None, None):  # Header mismatch
-        continue
+        result = parse_spreadsheet(fname, headers)
+        if result == (None, None):  # Header mismatch
+            continue
 
-    sections, headers = result
-    all_sections.extend(sections)
-    print(f"Total sections loaded: {len(all_sections)}")
+        sections, headers = result
+        all_sections.extend(sections)
+        print(f"Total sections loaded: {len(all_sections)}")
 
-    if input("\nLoad another file? (y/n): ").lower().strip() != 'y':
-        break
+        if input("\nLoad another file? (y/n): ").lower().strip() != 'y':
+            break
 
-if not all_sections:
-    print("No sections loaded. Exiting.")
-    sys.exit()
+    if not all_sections:
+        print("No sections loaded. Exiting.")
+        sys.exit()
 
-courses, time_frames = group_data(all_sections)
-print_data_summary(all_sections, courses, time_frames)
-verify_scheduling(all_sections, courses, time_frames)
-print_data_summary(all_sections, courses, time_frames)
-print_tree_view(courses, time_frames)
-approved_sections = select_sections(time_frames, courses)
-print(f"\n{len(approved_sections)} sections out of {len(all_sections)} approved for export.")
-calendar = generate_calendar(approved_sections)
-save_calendar(calendar)
-print("\nThank you for using Class Schedule Importer!")
+    courses, time_frames = group_data(all_sections)
+    print_data_summary(all_sections, courses, time_frames)
+    verify_scheduling(all_sections, courses, time_frames)
+    print_data_summary(all_sections, courses, time_frames)
+    print_tree_view(courses, time_frames)
+    approved_sections = select_sections(time_frames, courses)
+    print(f"\n{len(approved_sections)} sections out of {len(all_sections)} approved for export.")
+    calendar = generate_calendar(approved_sections)
+    save_calendar(calendar)
+    print("\nThank you for using Class Schedule Importer!")
+
+
+if __name__ == "__main__":
+    main()
