@@ -27,17 +27,12 @@ This tool helps you automatically add your class schedule to your calendar by:
 
 ## Running the Script
 
-1. Make sure you've installed the required dependencies:
-   ```bash
-   pip install openpyxl icalendar
-   ```
-
-2. Run the script:
+1. Run the script:
    ```bash
    python3 class_schedule.py
    ```
 
-3. Follow the prompts:
+2. Follow the prompts:
    - Select your first Excel file when the file dialog appears
    - **Optional**: Load additional files (e.g., Fall and Spring semesters together)
      - The script will prompt: "Load another file? (y/n)"
@@ -80,7 +75,7 @@ This tool helps you automatically add your class schedule to your calendar by:
 
 - Events are created as individual instances (not recurring series)
 - Some calendar applications may have formatting issues
-- Timezone is set to Eastern Time (UTC-4)
+- Timezone is set to America/New_York
 
 ## Troubleshooting
 
@@ -111,12 +106,6 @@ This tool helps you automatically add your class schedule to your calendar by:
 - Check that you imported the file (not just opened it)
 - Verify the date range matches your current semester
 - Ensure your calendar app supports `.ics` files
-
-## Technical Details
-
-For developers and contributors, see:
-- **CLAUDE.md** - Architecture and development guide
-- **ASSUMPTIONS.md** - Technical assumptions and risk analysis
 
 ## License
 
