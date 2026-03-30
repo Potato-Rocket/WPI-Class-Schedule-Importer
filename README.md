@@ -1,6 +1,6 @@
 # Class Schedule Importer
 
-A Python GUI tool that converts university class schedules from Excel spreadsheets into iCalendar files for easy import into calendar applications like Outlook.
+A Python TUI tool that converts university class schedules from Excel spreadsheets into iCalendar files for easy import into calendar applications like Outlook.
 
 ## Overview
 
@@ -15,7 +15,7 @@ This tool helps you automatically add your class schedule to your calendar by:
 - Python 3.x
 - Required Python packages:
   ```bash
-  pip install openpyxl icalendar
+  pip install -r requirements.txt
   ```
 
 ## Getting Your Class Schedule from Workday
